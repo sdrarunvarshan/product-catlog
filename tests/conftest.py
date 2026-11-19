@@ -1,70 +1,59 @@
 import pytest
-from fastapi.testclient import TestClient
+import sys
+import os
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-from .implementations import *
-
-
-def yield_test_client(app, impl):
-    if impl.__name__ == "tortoise_implementation":
-        from tortoise.contrib.test import initializer, finalizer
-
-        initializer(["tests.implementations.tortoise_"])
-        with TestClient(app) as c:
-            yield c
-        finalizer()
-
-    else:
-        with TestClient(app) as c:
-            yield c
+# Add service directories to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services', 'auth-service'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services', 'product-service'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services', 'order-service'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services', 'payment-service'))
 
 
-def label_func(*args):
-    func, dsn = args[0]
-    dsn = dsn.split(":")[0].split("+")[0]
-    return f"{func.__name__}-{dsn}"
+@pytest.fixture
+async def auth_client():
+    """Fixture for Auth Service test client."""
+    from app.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
 
 
-@pytest.fixture(params=implementations, ids=label_func, scope="class")
-def client(request):
-    impl, dsn = request.param
-
-    app, router, settings = impl(db_uri=dsn)
-    [app.include_router(router(**kwargs)) for kwargs in settings]
-    yield from yield_test_client(app, impl)
-
-
-@pytest.fixture(
-    params=[
-        sqlalchemy_implementation_custom_ids,
-        databases_implementation_custom_ids,
-        ormar_implementation_custom_ids,
-        gino_implementation_custom_ids,
-    ]
-)
-def custom_id_client(request):
-    yield from yield_test_client(request.param(), request.param)
+@pytest.fixture
+async def product_client():
+    """Fixture for Product Service test client."""
+    from app.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
 
 
-@pytest.fixture(
-    params=[
-        sqlalchemy_implementation_string_pk,
-        databases_implementation_string_pk,
-        ormar_implementation_string_pk,
-        gino_implementation_string_pk,
-    ],
-    scope="function",
-)
-def string_pk_client(request):
-    yield from yield_test_client(request.param(), request.param)
+@pytest.fixture
+async def order_client():
+    """Fixture for Order Service test client."""
+    from app.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
 
 
-@pytest.fixture(
-    params=[
-        sqlalchemy_implementation_integrity_errors,
-        ormar_implementation_integrity_errors,
-        gino_implementation_integrity_errors,
-    ],
-    scope="function",
-)
-def integrity_errors_client(request):
-    yield from yield_test_client(request.param(), request.param)
+@pytest.fixture
+async def payment_client():
+    """Fixture for Payment Service test client."""
+    from app.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
+
+
+@pytest.fixture
+async def test_db():
+    """Fixture for test database session."""
+    # Use a separate test database
+    engine = create_async_engine(
+        "postgresql+asyncpg://ecommerce_user:ecommerce_password@localhost:5432/ecommerce_auth_test",
+        echo=False
+    )
+    AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with AsyncSessionLocal() as session:
+        yield session
+
+    await engine.dispose()
